@@ -1,0 +1,41 @@
+
+
+Understanding & Tuning Fitness Shaping
+
+Fitness shaping is how you tell NEAT what “good behavior” means.
+Getting this right is the key to faster learning.
+
+
+
+# For now what We’re Rewarding and Penalizing
+
+
+| Situation            | Your current fitness change | Purpose                               |
+| -------------------- | --------------------------- | ------------------------------------- |
+| Survival each frame  | `+0.1`                      | Encourages staying alive              |
+| Collecting reward    | `+5`                        | Encourages moving toward blue squares |
+| Colliding with enemy | `-5`                        | Discourages risky movement            |
+
+
+
+# Fine-Tuning Ideas
+
+Here’s how you can adjust it to influence learning behavior:
+
+
+| Adjustment                                                                            | When to Use                         | Effect                          |
+| ------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------- |
+| **Increase survival reward** (e.g., `+0.2`)                                           | If agents die too fast              | Encourages cautious survival    |
+| **Increase reward for collecting** (e.g., `+10`)                                      | If agents never move toward rewards | Makes rewards more valuable     |
+| **Add small penalty for not moving** (e.g., `-0.05` if same position for many frames) | If agents just sit still            | Forces exploration              |
+| **Scale penalty by distance** (e.g., `-distance_to_reward * 0.01`)                    | For smoother learning               | Encourages movement toward goal |
+
+
+
+# Distance-Based Reward Example
+    👉 This gives more reward when getting closer to the blue box.
+
+dist = ((player.rect.x - reward.rect.x)**2 + (player.rect.y - reward.rect.y)**2) ** 0.5
+ge[x].fitness += (1.0 - dist / SCREEN_WIDTH) * 0.05
+
+

@@ -1,0 +1,43 @@
+
+
+# Reinforcement Learning (RL) is a type of machine learning where an agent learns how to behave in an environment by 
+performing actions and receiving rewards (or punishments).
+
+
+# Key Components of RL
+
+| RL Concept      | Meaning                                    | Example in Your Game                                       |
+| --------------- | ------------------------------------------ | ---------------------------------------------------------- |
+| **Agent**       | The entity that learns and makes decisions | The **player (green box)**                                 |
+| **Environment** | The world the agent interacts with         | The **pygame window** containing enemies and rewards       |
+| **State (s)**   | A representation of the current situation  | Player position, enemy positions, reward position          |
+| **Action (a)**  | What the agent can do                      | Move **up**, **down**, **left**, or **right**              |
+| **Reward (r)**  | A signal that tells how good an action was | +1 for collecting a reward, -1 or -10 for hitting an enemy |
+| **Episode**     | A full run from start until “game over”    | One complete playthrough                                   |
+
+
+
+# The Goal of RL
+
+- The goal of the agent is to learn a policy — a rule that tells it what action to take given a certain state — so that it maximizes its total future reward.
+
+    # In our game:
+
+    - The agent should learn to avoid red enemies.
+
+    - The agent should move toward blue rewards.
+
+    - The agent should survive as long as possible.
+
+
+# NEAT algorithm will:
+
+    - Create many neural networks (agents).
+
+    - Let them play the game.
+
+    - Score them (fitness = total reward or time survived).
+
+    - Keep the best ones and mutate them to create new generations.
+
+    - Repeat until an agent learns to play well.
