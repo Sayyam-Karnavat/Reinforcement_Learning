@@ -39,3 +39,5 @@ dist = ((player.rect.x - reward.rect.x)**2 + (player.rect.y - reward.rect.y)**2)
 ge[x].fitness += (1.0 - dist / SCREEN_WIDTH) * 0.05
 
 
+
+# Add input to neural network to provide the position of most wide gaps present in the game along the enemies so that AI can know that there is a gap present and I can go there to avoid enemies.

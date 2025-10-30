@@ -1,0 +1,325 @@
+Can you check once if everything is correct or not in my code and config file ? I want to train AI to avoid hitting cubes and I have added penalty for death and reward for survival. The AI will get inputs as player co ordinates and enemy co ordinates (I can see once issue that as soon as difficulty increases the enemy count increases so will be the input to neural network resulting to error so remove the increase in enemy count instead keep increasing speed ) Similar to these if there are any errors or room for improvement then please modify my code and give me entire new code if there are any corrects done to error or optimization to make game run faster (Note I want to visualize everything so you should render everything in screen and not skip that , also do not play multiple games at once for now)
+
+
+My code :- 
+import pygame
+import random
+import neat
+
+
+SCREEN_WIDTH, SCREEN_HEIGHT = 720, 720
+
+class Player:
+    def __init__(self, border_thickness=10):
+        self.gap = 5 
+        self.player_width = 30
+        self.player_height = 30
+        self.player_color = (0, 255, 0)
+        self.rect = pygame.Rect(
+            random.randint(border_thickness + self.player_width + self.gap,
+                           SCREEN_WIDTH - border_thickness - self.player_width - self.gap),
+            SCREEN_HEIGHT - border_thickness - self.player_height - self.gap,
+            self.player_width,
+            self.player_height
+        )
+        self.speed = 15
+
+    def move(self, keys):
+        if keys[pygame.K_LEFT]:
+            self.rect.x -= self.speed
+        if keys[pygame.K_RIGHT]:
+            self.rect.x += self.speed
+        self._check_border()
+
+    def _check_border(self):
+        self.rect.x = max(0, min(SCREEN_WIDTH - self.player_width, self.rect.x))
+        self.rect.y = max(0, min(SCREEN_HEIGHT - self.player_height, self.rect.y))
+
+    def draw(self, screen):
+        pygame.draw.rect(screen, self.player_color, self.rect)
+
+
+class Border:
+    def __init__(self, thickness=10):
+        self.thickness = thickness
+        self.border_color = (225, 225, 225)
+        self.border1 = pygame.Rect(0, 0, self.thickness, SCREEN_HEIGHT)
+        self.border2 = pygame.Rect(0, 0, SCREEN_WIDTH, self.thickness)
+        self.border3 = pygame.Rect(SCREEN_WIDTH - self.thickness, 0, self.thickness, SCREEN_HEIGHT)
+        self.border4 = pygame.Rect(0, SCREEN_HEIGHT - self.thickness, SCREEN_WIDTH, self.thickness)
+
+    def draw(self, screen):
+        pygame.draw.rect(screen, self.border_color, self.border1)
+        pygame.draw.rect(screen, self.border_color, self.border2)
+        pygame.draw.rect(screen, self.border_color, self.border3)
+        pygame.draw.rect(screen, self.border_color, self.border4)
+
+
+class Enemy:
+    def __init__(self, border_thickness=10, difficulty=1):
+        self.enemy_color = (255, 0, 0)
+        self.enemy_width = 20
+        self.enemy_height = 20
+        self.border_thickness = border_thickness
+        self.rect = pygame.Rect(
+            random.randint(0, SCREEN_WIDTH - self.border_thickness),
+            0,
+            self.enemy_width,
+            self.enemy_height
+        )
+        # Speed increases gradually but capped
+        self.enemy_speed = min(25, 10 + 2 * difficulty)
+
+    def draw(self, screen):
+        pygame.draw.rect(screen, self.enemy_color, self.rect)
+
+    def move(self):
+        self.rect.y += self.enemy_speed
+        if self.rect.y > SCREEN_HEIGHT:
+            self.rect.y = 0
+            self.rect.x = random.randint(0, SCREEN_WIDTH - self.border_thickness)
+            return True  # Enemy reset → wave passed
+        return False
+
+
+
+def train_genomes(genomes , config):
+
+    pygame.init()
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    pygame.display.set_caption("Avoid cubes")
+
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont(None, 36)
+
+
+    border_thickness = 20
+    border = Border(border_thickness)
+    
+    
+    nets = []
+    ge = []
+    players = []
+
+    for genome_id , genome in genomes:
+        
+        # Initialize neural network
+        net = neat.nn.FeedForwardNetwork.create(genome , config)
+        nets.append(net)
+
+        # Create player
+        players.append(Player(border_thickness=border_thickness))
+        
+        # Initialize genome
+        genome.fitness = 0
+        ge.append(genome)
+
+    
+    # Initial enemies
+    total_enemies = 5
+    enemies = [Enemy(border_thickness=border_thickness, difficulty=difficulty_level)
+               for _ in range(total_enemies)]
+
+
+    # Difficulty progression
+    next_difficulty_threshold = 50  # first increase after score 50
+    max_enemies = 10
+    difficulty_level = 1
+    player_score = 0
+    enemies_reset_this_wave = 0
+
+
+
+    running = True
+    while running:
+        screen.fill((0, 0, 0))
+        border.draw(screen)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+
+
+        for idx,player in players:
+
+            inputs = [
+                player.rect.x / SCREEN_WIDTH,
+                player.rect.y / SCREEN_HEIGHT,
+            ]
+
+            for enemy in enemies:
+                inputs.append(enemy.rect.x / SCREEN_WIDTH)
+                inputs.append(enemy.rect.y / SCREEN_HEIGHT)
+
+            
+            outputs = nets[idx].activate(inputs)
+
+            player.move_ai(outputs)
+            player.draw(screen)
+
+        for enemy in enemies:
+            reset_happened = enemy.move()
+            enemy.draw(screen)
+
+            if player.rect.colliderect(enemy.rect):
+                text = font.render("Game over !!! Player collided", True, (20, 200, 150))
+                screen.blit(text, (150, SCREEN_HEIGHT // 2))
+
+                # Penalize for death
+                ge[idx].fitness -= 0.6
+
+                pygame.display.flip()
+                pygame.time.wait(2000)
+                running = False
+                break
+
+            if reset_happened:
+                
+                enemies_reset_this_wave += 1
+
+        # Check for completed wave
+        if enemies_reset_this_wave == len(enemies):
+            # If survived one wave then reward
+            ge[idx] += 0.4
+
+            player_score += 1
+            enemies_reset_this_wave = 0
+
+        # Increase difficulty only once per threshold
+        if player_score >= next_difficulty_threshold:
+            difficulty_level += 1
+            total_enemies = min(max_enemies, total_enemies + 1)
+            enemies = [Enemy(border_thickness=border_thickness, difficulty=difficulty_level)
+                       for _ in range(total_enemies)]
+            next_difficulty_threshold += 50  # next threshold at +50 score
+
+        # Draw score
+        text = font.render(f"Score: {player_score}  |  Difficulty: {difficulty_level}", True, (170, 40, 10))
+        screen.blit(text, (border.border1.x + border.thickness + 5,
+                           border.border1.y + border.thickness + 5))
+
+        pygame.display.flip()
+        clock.tick(60)
+
+    pygame.quit()
+
+
+
+def run_neat(n_iterations = 1000):
+
+    config_file_path = 'config-feedforward.txt'
+
+    config = neat.Config(
+        neat.DefaultGenome,
+        neat.DefaultReproduction,
+        neat.DefaultSpeciesSet,
+        neat.DefaultStagnation,
+        config_file_path
+    )
+
+    population = neat.Population(config)
+    population.add_reporter(neat.StdOutReporter(True))
+    stats = neat.StatisticsReporter()
+    population.add_reporter(stats)
+
+
+    winner = population.run(train_genomes , n_iterations)
+
+    print("\n Best AI achieved.")
+
+    return winner
+    
+     
+
+if __name__ == "__main__":
+    run_neat()
+
+    
+    
+
+    
+
+    
+
+    
+
+    
+
+Config file :- 
+[NEAT]
+fitness_criterion     = max
+fitness_threshold     = 10000.0
+pop_size              = 500
+reset_on_extinction   = False
+no_fitness_termination = False
+
+[DefaultGenome]
+# --- Network structure ---
+num_inputs              = 16
+num_outputs             = 2
+num_hidden              = 0
+feed_forward            = True
+initial_connection      = full_direct
+
+# --- Activation options ---
+activation_default      = sigmoid
+activation_options      = sigmoid
+activation_mutate_rate  = 0.0
+
+# --- Aggregation options ---
+aggregation_default     = sum
+aggregation_options     = sum
+aggregation_mutate_rate = 0.0
+
+# --- Node bias parameters ---
+bias_init_mean          = 0.0
+bias_init_stdev         = 1.0
+bias_min_value          = -30.0
+bias_max_value          = 30.0
+bias_mutate_rate        = 0.7
+bias_replace_rate       = 0.1
+bias_mutate_power       = 0.5
+
+# --- Node response parameters ---
+response_init_mean      = 1.0
+response_init_stdev     = 0.0
+response_min_value      = 0.1
+response_max_value      = 10.0
+response_mutate_rate    = 0.0
+response_replace_rate   = 0.0
+response_mutate_power   = 0.0
+
+# --- Connection weight parameters ---
+weight_init_mean        = 0.0
+weight_init_stdev       = 1.0
+weight_min_value        = -30.0
+weight_max_value        = 30.0
+weight_mutate_rate      = 0.8
+weight_replace_rate     = 0.1
+weight_mutate_power     = 0.5
+
+# --- Connection gene options ---
+conn_add_prob           = 0.5
+conn_delete_prob        = 0.3
+enabled_default         = True
+enabled_mutate_rate     = 0.01
+
+# --- Node structural mutation rates ---
+node_add_prob           = 0.2
+node_delete_prob        = 0.2
+
+# --- Compatibility coefficients ---
+compatibility_disjoint_coefficient = 1.0
+compatibility_weight_coefficient   = 0.5
+
+[DefaultSpeciesSet]
+compatibility_threshold  = 3.0
+
+[DefaultStagnation]
+species_fitness_func     = max
+max_stagnation           = 20
+species_elitism          = 2
+
+[DefaultReproduction]
+elitism                  = 2
+survival_threshold       = 0.2

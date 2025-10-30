@@ -1,11 +1,14 @@
 import pygame
 import random
 import neat
+import math
 import pickle
+import os
 
 
 SCREEN_WIDTH, SCREEN_HEIGHT = 720, 720
 MAX_ENEMIES = 6
+
 
 class Player:
     def __init__(self, border_thickness=10):
@@ -79,6 +82,70 @@ class Enemy:
             self.rect.x = random.randint(self.border_thickness, SCREEN_WIDTH - self.border_thickness - self.enemy_width)
 
 
+# ---------------- Neural Network Visualizer ---------------- #
+class NeuralNetworkVisualizer:
+    def __init__(self, screen, genome, config, pos=(500, 80), size=(200, 500)):
+        self.screen = screen
+        self.genome = genome
+        self.config = config
+        self.pos = pos
+        self.size = size
+
+    def draw_network(self, activations):
+        x, y = self.pos
+        w, h = self.size
+        node_positions = {}
+
+        # Determine layers
+        input_nodes = self.config.genome_config.input_keys
+        output_nodes = self.config.genome_config.output_keys
+
+        # Input positions
+        spacing_y = h / (len(input_nodes) + 1)
+        for i, nid in enumerate(input_nodes):
+            node_positions[nid] = (x, y + spacing_y * (i + 1))
+
+        # Output positions
+        spacing_y = h / (len(output_nodes) + 1)
+        for i, nid in enumerate(output_nodes):
+            node_positions[nid] = (x + w, y + spacing_y * (i + 1))
+
+        # Hidden nodes
+        hidden_nodes = [n for n in self.genome.nodes.keys()
+                        if n not in input_nodes and n not in output_nodes]
+        if hidden_nodes:
+            spacing_y = h / (len(hidden_nodes) + 1)
+            for i, nid in enumerate(hidden_nodes):
+                node_positions[nid] = (x + w / 2, y + spacing_y * (i + 1))
+
+        # Draw connections
+        for key, conn in self.genome.connections.items():
+            if not conn.enabled:
+                continue
+            n1, n2 = key
+            if n1 not in node_positions or n2 not in node_positions:
+                continue
+            x1, y1 = node_positions[n1]
+            x2, y2 = node_positions[n2]
+            weight = conn.weight
+            color = (0, 255, 0) if weight > 0 else (255, 0, 0)
+            thickness = max(1, int(abs(weight) * 2))
+            pygame.draw.line(self.screen, color, (x1, y1), (x2, y2), thickness)
+
+        # Draw nodes
+        for nid, (nx, ny) in node_positions.items():
+            activation = activations.get(nid, 0)
+            brightness = int(255 * min(1, max(0, (activation + 1) / 2)))
+            if nid in input_nodes:
+                color = (0, brightness, 0)
+            elif nid in output_nodes:
+                color = (brightness, 0, 0)
+            else:
+                color = (0, 0, brightness)
+            pygame.draw.circle(self.screen, color, (int(nx), int(ny)), 8)
+
+
+# ---------------- NEAT Training ---------------- #
 def train_genomes(genomes, config):
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Avoid Cubes (NEAT) - Improved")
@@ -88,6 +155,7 @@ def train_genomes(genomes, config):
     border_thickness = 20
     border = Border(border_thickness)
 
+    # Prepare genome/network/player lists
     nets, ge, players = [], [], []
 
     for genome_id, genome in genomes:
@@ -96,6 +164,9 @@ def train_genomes(genomes, config):
         players.append(Player(border_thickness=border_thickness))
         genome.fitness = 0
         ge.append(genome)
+
+    # Visualizer for the best genome (first in list)
+    visualizer = NeuralNetworkVisualizer(screen, ge[0], config)
 
     # Fixed enemies
     initial_speed = 10
@@ -116,6 +187,9 @@ def train_genomes(genomes, config):
         for enemy in enemies:
             enemy.move()
             enemy.draw(screen)
+
+        best_idx = 0  # we'll visualize this one's network
+        best_activations = {}
 
         # Move players
         for idx, player in enumerate(players):
@@ -138,14 +212,20 @@ def train_genomes(genomes, config):
             player.move_ai(outputs)
             player.draw(screen)
 
-            # --- Improved fitness function ---
+            # Store activations for visualizer if this is the best one
+            if idx == best_idx:
+                # Build a simple activation dict for coloring (approximation)
+                best_activations = {i: val for i, val in enumerate(inputs)}
+                best_activations.update({100 + i: outputs[i] for i in range(len(outputs))})
+
+            # --- Fitness function ---
             ge[idx].fitness += 0.1  # survival reward
 
             # Reward distance from nearest enemy
             nearest_enemy = min(enemies, key=lambda e: abs(player.rect.centerx - e.rect.centerx) +
                                                 abs(player.rect.centery - e.rect.centery))
-            dist = ((player.rect.centerx - nearest_enemy.rect.centerx) ** 2 +
-                    (player.rect.centery - nearest_enemy.rect.centery) ** 2) ** 0.5
+            dist = math.sqrt((player.rect.centerx - nearest_enemy.rect.centerx) ** 2 +
+                             (player.rect.centery - nearest_enemy.rect.centery) ** 2)
             ge[idx].fitness += (dist / SCREEN_WIDTH) * 0.5
 
             # Penalize hugging walls
@@ -174,17 +254,11 @@ def train_genomes(genomes, config):
         score_text = font.render(f"Survival Time: {survival_time // 60}s", True, (200, 150, 50))
         screen.blit(score_text, (border_thickness + 5, border_thickness + 5))
 
+        # Draw best network visualization
+        visualizer.draw_network(best_activations)
+
         pygame.display.flip()
         clock.tick(60)
-
-
-def save_genome(genome, generation, filename_prefix="best_genome"):
-    filename = f"{filename_prefix}_gen_{generation}.pkl"
-    with open(filename, "wb") as f:
-        pickle.dump(genome, f)
-    print(f"✅ Saved best genome at generation {generation} → {filename}")
-
-
 
 
 def run_neat(n_iterations=10000):
@@ -202,29 +276,9 @@ def run_neat(n_iterations=10000):
     stats = neat.StatisticsReporter()
     population.add_reporter(stats)
 
-    # Add a custom generation counter
-    generation_counter = {"gen": 0}
-
-    # Custom reporter for saving genomes
-    class SaveEveryTwoGenerations(neat.reporting.BaseReporter):
-        def post_evaluate(self, config, population, species, best_genome):
-            generation_counter["gen"] += 1
-            gen = generation_counter["gen"]
-
-            # Save every 2 generations no matter what
-            if gen % 1000 == 0:
-                save_genome(best_genome, gen)
-
-    # Add the custom reporter
-    population.add_reporter(SaveEveryTwoGenerations())
-
-    # Run NEAT
     winner = population.run(train_genomes, n_iterations)
-
-    print("\n🏆 Best overall AI achieved.")
-    save_genome(winner, generation_counter["gen"], filename_prefix="final_best_genome")
+    print("\nBest AI achieved.")
     return winner
-
 
 
 if __name__ == "__main__":
